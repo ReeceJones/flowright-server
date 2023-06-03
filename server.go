@@ -1,0 +1,209 @@
+package main
+
+import (
+	"fmt"
+	"log"
+	"strings"
+	"time"
+
+	"github.com/fasthttp/websocket"
+	"github.com/valyala/fasthttp"
+)
+
+var upgrader = websocket.FastHTTPUpgrader{
+	ReadBufferSize:    1024,
+	WriteBufferSize:   1024,
+	CheckOrigin:       func(ctx *fasthttp.RequestCtx) bool { return true },
+	EnableCompression: true,
+}
+
+var client = &fasthttp.Client{
+	NoDefaultUserAgentHeader:      true,
+	DisableHeaderNamesNormalizing: true,
+	DisablePathNormalizing:        true,
+}
+
+type ProxyURIParseError struct {
+	Reason string
+}
+
+func (err *ProxyURIParseError) Error() string {
+	return err.Reason
+}
+
+func main() {
+	if err := fasthttp.ListenAndServe("localhost:9000", requestHandler); err != nil {
+		fmt.Printf("Error occurred: %v", err)
+	}
+}
+
+func getProxyPathComponents(uri *fasthttp.URI) (base string, path string, err error) {
+	capped_path := string(uri.Path()[1:])
+	components := strings.SplitN(capped_path, "/", 2)
+	if len(components) != 2 {
+		return "", "", &ProxyURIParseError{Reason: "Invalid URI"}
+	}
+	return components[0], components[1], nil
+}
+
+func handleWebsocketProxyBackend(server_conn *websocket.Conn, client_conn *websocket.Conn, done chan struct{}, closed *bool) {
+	defer func() {
+		close(done)
+		*closed = true
+	}()
+
+	for {
+		_, message, err := client_conn.ReadMessage()
+		if err != nil {
+			if !*closed {
+				log.Println("Error reading client socket:", err)
+			}
+			if websocket.IsCloseError(err) {
+				ws_err := err.(*websocket.CloseError)
+				server_conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(ws_err.Code, ws_err.Text), time.Now().Add(1*time.Second))
+			} else {
+				server_conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "Backend service read error"), time.Now().Add(1*time.Second))
+			}
+			return
+		}
+		// log.Println(string(message))
+		err = server_conn.WriteMessage(websocket.TextMessage, message)
+		if err != nil {
+			if !*closed {
+				log.Println("Error writing server socket:", err)
+			}
+			if websocket.IsCloseError(err) {
+				ws_err := err.(*websocket.CloseError)
+				client_conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(ws_err.Code, ws_err.Text), time.Now().Add(1*time.Second))
+			} else {
+				client_conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "Web client write error"), time.Now().Add(1*time.Second))
+			}
+			return
+		}
+	}
+}
+
+func handleWebSocketProxyClient(server_conn *websocket.Conn, client_conn *websocket.Conn, done chan struct{}, closed *bool) {
+	for {
+		select {
+		case <-done:
+			log.Println("flowright backend closed connection")
+			return
+		default:
+			_, message, err := server_conn.ReadMessage()
+
+			if err != nil {
+				if !*closed || websocket.IsUnexpectedCloseError(err) {
+					log.Println("Error reading server socket:", err)
+				}
+				*closed = true
+				return
+			}
+			err = client_conn.WriteMessage(websocket.TextMessage, message)
+			if err != nil {
+				if !*closed || websocket.IsUnexpectedCloseError(err) {
+					log.Println("Error writing client socket")
+				}
+				*closed = true
+				return
+			}
+		}
+	}
+}
+
+func handleWebsocketProxy(ctx *fasthttp.RequestCtx) {
+	_, path, err := getProxyPathComponents(ctx.URI())
+	if err != nil {
+		log.Println("Invalid URI:", string(ctx.URI().Path()))
+		return
+	}
+	uri := fasthttp.AcquireURI()
+	err = uri.Parse([]byte("localhost:8000"), []byte(path))
+	if err != nil {
+		log.Println("Error parsing request uri:", err)
+		ctx.Response.SetStatusCode(fasthttp.StatusInternalServerError)
+		return
+	}
+	uri.SetScheme("ws")
+	// upgrade connection
+	err = upgrader.Upgrade(ctx, func(server_conn *websocket.Conn) {
+		defer server_conn.Close()
+		// connect to flowright backend
+		// client_conn, _, err := websocket.DefaultDialer.Dial("ws://localhost:8000/ws", nil)
+		client_conn, _, err := websocket.DefaultDialer.Dial(uri.String(), nil)
+		if err != nil {
+			log.Fatal("Error dialing websocket:", err)
+			return
+		}
+		defer client_conn.Close()
+
+		done := make(chan struct{})
+		closed := false
+
+		go handleWebsocketProxyBackend(server_conn, client_conn, done, &closed)
+		handleWebSocketProxyClient(server_conn, client_conn, done, &closed)
+	})
+	if err != nil {
+		log.Println("Error upgrading connection:", err)
+	}
+}
+
+func handleHttpProxy(ctx *fasthttp.RequestCtx) {
+	_, path, err := getProxyPathComponents(ctx.URI())
+	if err != nil {
+		log.Println("Invalid URI:", string(ctx.URI().Path()))
+		return
+	}
+	uri := fasthttp.AcquireURI()
+	err = uri.Parse([]byte("localhost:8000"), []byte(path))
+	if err != nil {
+		log.Println("Error parsing request uri:", err)
+		ctx.Response.SetStatusCode(fasthttp.StatusInternalServerError)
+		return
+	}
+	defer fasthttp.ReleaseURI(uri)
+	req := fasthttp.AcquireRequest()
+	defer fasthttp.ReleaseRequest(req)
+	req.SetRequestURI(uri.String())
+	ctx.Request.Header.VisitAll(func(key []byte, value []byte) {
+		req.Header.Set(string(key), string(value))
+	})
+	resp := fasthttp.AcquireResponse()
+	err = client.Do(req, resp)
+	if err != nil {
+		log.Println("Error servicing request", err)
+		ctx.Response.SetStatusCode(fasthttp.StatusBadGateway)
+		return
+	}
+	ctx.Response.SetBody(resp.Body())
+	resp.Header.VisitAll(func(key []byte, value []byte) {
+		ctx.Response.Header.Set(string(key), string(value))
+	})
+	fasthttp.ReleaseResponse(resp)
+}
+
+func requestHandler(ctx *fasthttp.RequestCtx) {
+	/*
+		GET /ws_endpoint HTTP/1.1
+		User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36
+		Host: localhost:9000
+		Connection: Upgrade
+		Pragma: no-cache
+		Cache-Control: no-cache
+		Upgrade: websocket
+		Origin: http://localhost:8000
+		Sec-Websocket-Version: 13
+		Accept-Encoding: gzip, deflate, br
+		Accept-Language: en-US,en;q=0.9
+		Sec-Websocket-Key: VSyoHjNnLDWvGbh93ruNzg==
+		Sec-Websocket-Extensions: permessage-deflate; client_max_window_bits
+	*/
+	// fmt.Printf("Raw request is:\n---CUT---\n%s\n---CUT---\n", &ctx.Request)
+	if websocket.FastHTTPIsWebSocketUpgrade(ctx) {
+		log.Printf("%s\t[websocket] %s", ctx.RemoteIP(), ctx.Path())
+		handleWebsocketProxy(ctx)
+	} else {
+		log.Printf("%s\t%s %s", ctx.RemoteIP(), ctx.Method(), ctx.Path())
+		handleHttpProxy(ctx)
+	}
+}
