@@ -10,6 +10,15 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
+type BackendRef struct {
+	Owner   string
+	Project string
+}
+
+var routeTable = map[BackendRef]string{
+	{Owner: "reece", Project: "test"}: "localhost:8000",
+}
+
 var upgrader = websocket.FastHTTPUpgrader{
 	ReadBufferSize:    1024,
 	WriteBufferSize:   1024,
@@ -37,13 +46,13 @@ func main() {
 	}
 }
 
-func getProxyPathComponents(uri *fasthttp.URI) (base string, path string, err error) {
+func getProxyPathComponents(uri *fasthttp.URI) (base string, project string, path string, err error) {
 	capped_path := string(uri.Path()[1:])
-	components := strings.SplitN(capped_path, "/", 2)
-	if len(components) != 2 {
-		return "", "", &ProxyURIParseError{Reason: "Invalid URI"}
+	components := strings.SplitN(capped_path, "/", 3)
+	if len(components) != 3 {
+		return "", "", "", &ProxyURIParseError{Reason: "Invalid URI"}
 	}
-	return components[0], components[1], nil
+	return components[0], components[1], components[2], nil
 }
 
 func handleWebsocketProxyBackend(server_conn *websocket.Conn, client_conn *websocket.Conn, done chan struct{}, closed *bool) {
@@ -112,13 +121,20 @@ func handleWebSocketProxyClient(server_conn *websocket.Conn, client_conn *websoc
 }
 
 func handleWebsocketProxy(ctx *fasthttp.RequestCtx) {
-	_, path, err := getProxyPathComponents(ctx.URI())
+	owner, project, path, err := getProxyPathComponents(ctx.URI())
 	if err != nil {
 		log.Println("Invalid URI:", string(ctx.URI().Path()))
 		return
 	}
+	ref := BackendRef{Owner: owner, Project: project}
+	backendHost, containsRef := routeTable[ref]
+	if !containsRef {
+		log.Println("Invalid backend:", owner, project)
+		ctx.Response.SetStatusCode(fasthttp.StatusNotFound)
+		return
+	}
 	uri := fasthttp.AcquireURI()
-	err = uri.Parse([]byte("localhost:8000"), []byte(path))
+	err = uri.Parse([]byte(backendHost), []byte(path))
 	if err != nil {
 		log.Println("Error parsing request uri:", err)
 		ctx.Response.SetStatusCode(fasthttp.StatusInternalServerError)
@@ -129,7 +145,6 @@ func handleWebsocketProxy(ctx *fasthttp.RequestCtx) {
 	err = upgrader.Upgrade(ctx, func(server_conn *websocket.Conn) {
 		defer server_conn.Close()
 		// connect to flowright backend
-		// client_conn, _, err := websocket.DefaultDialer.Dial("ws://localhost:8000/ws", nil)
 		client_conn, _, err := websocket.DefaultDialer.Dial(uri.String(), nil)
 		if err != nil {
 			log.Fatal("Error dialing websocket:", err)
@@ -149,7 +164,7 @@ func handleWebsocketProxy(ctx *fasthttp.RequestCtx) {
 }
 
 func handleHttpProxy(ctx *fasthttp.RequestCtx) {
-	_, path, err := getProxyPathComponents(ctx.URI())
+	_, _, path, err := getProxyPathComponents(ctx.URI())
 	if err != nil {
 		log.Println("Invalid URI:", string(ctx.URI().Path()))
 		return
@@ -183,22 +198,6 @@ func handleHttpProxy(ctx *fasthttp.RequestCtx) {
 }
 
 func requestHandler(ctx *fasthttp.RequestCtx) {
-	/*
-		GET /ws_endpoint HTTP/1.1
-		User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36
-		Host: localhost:9000
-		Connection: Upgrade
-		Pragma: no-cache
-		Cache-Control: no-cache
-		Upgrade: websocket
-		Origin: http://localhost:8000
-		Sec-Websocket-Version: 13
-		Accept-Encoding: gzip, deflate, br
-		Accept-Language: en-US,en;q=0.9
-		Sec-Websocket-Key: VSyoHjNnLDWvGbh93ruNzg==
-		Sec-Websocket-Extensions: permessage-deflate; client_max_window_bits
-	*/
-	// fmt.Printf("Raw request is:\n---CUT---\n%s\n---CUT---\n", &ctx.Request)
 	if websocket.FastHTTPIsWebSocketUpgrade(ctx) {
 		log.Printf("%s\t[websocket] %s", ctx.RemoteIP(), ctx.Path())
 		handleWebsocketProxy(ctx)
