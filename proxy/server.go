@@ -8,16 +8,21 @@ import (
 
 	"github.com/fasthttp/websocket"
 	"github.com/valyala/fasthttp"
+
+	"shared"
 )
 
-type BackendRef struct {
-	Owner   string
-	Project string
+type ProxyURIParseError struct {
+	Reason string
 }
 
-var routeTable = map[BackendRef]string{
-	{Owner: "reece", Project: "test"}: "localhost:8000",
+func (err *ProxyURIParseError) Error() string {
+	return err.Reason
 }
+
+// var routeTable = map[shared.BackendRef]string{
+// 	{Owner: "reece", Project: "test"}: "localhost:8000",
+// }
 
 var upgrader = websocket.FastHTTPUpgrader{
 	ReadBufferSize:    1024,
@@ -32,15 +37,9 @@ var client = &fasthttp.Client{
 	DisablePathNormalizing:        true,
 }
 
-type ProxyURIParseError struct {
-	Reason string
-}
-
-func (err *ProxyURIParseError) Error() string {
-	return err.Reason
-}
-
 func main() {
+	shared.Init()
+	shared.AddRoutingRule("reece", "test", "localhost:8000")
 	if err := fasthttp.ListenAndServe("localhost:9000", requestHandler); err != nil {
 		fmt.Printf("Error occurred: %v", err)
 	}
@@ -126,15 +125,16 @@ func handleWebsocketProxy(ctx *fasthttp.RequestCtx) {
 		log.Println("Invalid URI:", string(ctx.URI().Path()))
 		return
 	}
-	ref := BackendRef{Owner: owner, Project: project}
-	backendHost, containsRef := routeTable[ref]
-	if !containsRef {
+	route, err := shared.GetRoute(owner, project)
+	if err != nil {
 		log.Println("Invalid backend:", owner, project)
+		log.Println("Cause:", err)
 		ctx.Response.SetStatusCode(fasthttp.StatusNotFound)
 		return
 	}
+	log.Println("Endpoint:", route)
 	uri := fasthttp.AcquireURI()
-	err = uri.Parse([]byte(backendHost), []byte(path))
+	err = uri.Parse([]byte(route.Endpoint), []byte(path))
 	if err != nil {
 		log.Println("Error parsing request uri:", err)
 		ctx.Response.SetStatusCode(fasthttp.StatusInternalServerError)
