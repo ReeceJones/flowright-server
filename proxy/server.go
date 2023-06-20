@@ -20,10 +20,6 @@ func (err *ProxyURIParseError) Error() string {
 	return err.Reason
 }
 
-// var routeTable = map[shared.BackendRef]string{
-// 	{Owner: "reece", Project: "test"}: "localhost:8000",
-// }
-
 var upgrader = websocket.FastHTTPUpgrader{
 	ReadBufferSize:    1024,
 	WriteBufferSize:   1024,
