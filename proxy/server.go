@@ -44,8 +44,11 @@ func main() {
 func getProxyPathComponents(uri *fasthttp.URI) (base string, project string, path string, err error) {
 	capped_path := string(uri.Path()[1:])
 	components := strings.SplitN(capped_path, "/", 3)
-	if len(components) != 3 {
+	if len(components) < 2 || len(components) > 3 {
 		return "", "", "", &ProxyURIParseError{Reason: "Invalid URI"}
+	}
+	if len(components) == 2 {
+		components = append(components, "")
 	}
 	return components[0], components[1], components[2], nil
 }
