@@ -1,21 +1,18 @@
-import Layout from "@/components/Layout"
-import { NextPageWithLayout } from "./_app"
-import { ReactElement, useEffect, useState } from "react"
+import Layout  from "@/components/Layout"
+import { NextPageWithLayout, pb } from "./_app"
+import { ReactElement, useContext, useEffect, useState } from "react"
 import Link from "next/link"
 import ProjectRow from "@/components/ProjectRow"
 import ProjectRowHeader from "@/components/ProjectRowHeader"
-import PocketBase, { ListResult, Record } from "pocketbase"
 import Project from "@/types/project"
-
-const pb = new PocketBase("http://localhost:8090")
 
 const Page: NextPageWithLayout = () => {
     const projectRows: ReactElement[] = []
     const [projects, setProjects] = useState<Project[]>([])
     useEffect(() => {
         const getProjects = async () => {
-            const authData = await pb.collection('users').authWithPassword('reece', 'password');
-            const pbProjects = await pb.collection("projects").getList<Project>();
+            // const authData = await pb.collection('users').authWithPassword('reece', 'password');
+            const pbProjects = await pb.collection("projects").getList<Project>(1, 100, {expand: "owner"});
             setProjects(pbProjects.items);
         }
         getProjects();

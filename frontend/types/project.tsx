@@ -2,8 +2,9 @@ export default interface Project {
     id: number,
     name: string,
     status: string,
-    long_name: string,
     description: string,
+    visibility: string
     created: string,
-    updated: string
+    updated: string,
+    expand: any
 }

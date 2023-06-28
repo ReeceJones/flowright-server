@@ -1,6 +1,6 @@
 import Layout from "@/components/Layout"
 import { NextPageWithLayout } from "./_app"
-import { ReactElement, useEffect } from "react"
+import { ReactElement } from "react"
 import { AreaChart, ResponsiveContainer, XAxis, YAxis, Area, Legend, Tooltip } from "recharts"
 
 const testData = [

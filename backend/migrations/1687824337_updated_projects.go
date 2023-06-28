@@ -13,59 +13,53 @@ func init() {
 	m.Register(func(db dbx.Builder) error {
 		dao := daos.New(db);
 
-		collection, err := dao.FindCollectionByNameOrId("rpw6ibkds3yu215")
+		collection, err := dao.FindCollectionByNameOrId("u6my0iagdcpi3id")
 		if err != nil {
 			return err
 		}
 
 		// update
-		edit_status := &schema.SchemaField{}
+		edit_name := &schema.SchemaField{}
 		json.Unmarshal([]byte(`{
 			"system": false,
-			"id": "jtrpdbva",
-			"name": "status",
-			"type": "select",
+			"id": "msgk4gk9",
+			"name": "name",
+			"type": "text",
 			"required": true,
 			"unique": false,
 			"options": {
-				"maxSelect": 1,
-				"values": [
-					"Alive",
-					"Dead",
-					"Pending"
-				]
+				"min": 1,
+				"max": 100,
+				"pattern": "[a-zA-Z0-9_]+$"
 			}
-		}`), edit_status)
-		collection.Schema.AddField(edit_status)
+		}`), edit_name)
+		collection.Schema.AddField(edit_name)
 
 		return dao.SaveCollection(collection)
 	}, func(db dbx.Builder) error {
 		dao := daos.New(db);
 
-		collection, err := dao.FindCollectionByNameOrId("rpw6ibkds3yu215")
+		collection, err := dao.FindCollectionByNameOrId("u6my0iagdcpi3id")
 		if err != nil {
 			return err
 		}
 
 		// update
-		edit_status := &schema.SchemaField{}
+		edit_name := &schema.SchemaField{}
 		json.Unmarshal([]byte(`{
 			"system": false,
-			"id": "jtrpdbva",
-			"name": "status",
-			"type": "select",
+			"id": "msgk4gk9",
+			"name": "name",
+			"type": "text",
 			"required": true,
 			"unique": false,
 			"options": {
-				"maxSelect": 1,
-				"values": [
-					"alive",
-					"dead",
-					"pending"
-				]
+				"min": 1,
+				"max": 100,
+				"pattern": ""
 			}
-		}`), edit_status)
-		collection.Schema.AddField(edit_status)
+		}`), edit_name)
+		collection.Schema.AddField(edit_name)
 
 		return dao.SaveCollection(collection)
 	})

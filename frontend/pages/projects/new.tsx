@@ -1,20 +1,16 @@
 import Layout from "@/components/Layout"
-import { NextPageWithLayout } from "../_app"
-import { ReactElement, useEffect } from "react"
-import PocketBase from "pocketbase"
-
-const pb = new PocketBase("http://localhost:8090")
+import { NextPageWithLayout, pb } from "../_app"
+import { ReactElement, useContext } from "react"
 
 const Page: NextPageWithLayout = () => {
     const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault()
         const formData = new FormData(event.currentTarget)
         const data = {
-            long_name: formData.get("name"),
-            name: formData.get("name")?.toString().replace(/ /g, "_").replace(/[^a-zA-Z0-9_]/g, "").toLowerCase(),
+            name: formData.get("name"),
             description: formData.get("description"),
-            // visibility: formData.get("visibility"),
-            status: "Alive",
+            visibility: formData.get("visibility"),
+            status: "Pending",
             owner: pb.authStore.model?.id
         }
         console.log(data)
@@ -29,7 +25,7 @@ const Page: NextPageWithLayout = () => {
                     <label className="block text-gray-700 font-bold mb-2" htmlFor="name">Project name*</label>
                     <input className="block w-full shadow appearance-none border rounded py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline mb-4" maxLength={120} id="name" name="name" type="text" placeholder="Project name"/>
 
-                    <label className="block text-gray-700 font-bold mb-2" htmlFor="description">Description*</label>
+                    <label className="block text-gray-700 font-bold mb-2" htmlFor="description">Description</label>
                     <textarea className="block resize-none w-full h-20 shadow appearance-none border rounded py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline mb-4" maxLength={200} id="description" name="description" placeholder="Description"></textarea>
 
                     <input className="inline-block" type="radio" id="public" name="visibility" value="public" defaultChecked/>

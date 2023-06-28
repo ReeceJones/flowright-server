@@ -1,7 +1,8 @@
-import './../app/globals.css'
 import type { ReactElement, ReactNode } from 'react'
 import type { NextPage } from 'next'
 import type { AppProps } from 'next/app'
+import PocketBase from 'pocketbase'
+import './global.css'
  
 export type NextPageWithLayout<P = {}, IP = P> = NextPage<P, IP> & {
   getLayout?: (page: ReactElement) => ReactNode
@@ -17,3 +18,5 @@ export default function MyApp({ Component, pageProps }: AppPropsWithLayout) {
  
   return getLayout(<Component {...pageProps} />)
 }
+
+export const pb = new PocketBase("http://localhost:8090");
