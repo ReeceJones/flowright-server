@@ -8,13 +8,16 @@ export default function NavBar({page}: {page?: string}) {
     const [logoutDisplay, setLogoutDisplay] = useState('none')
 
     useEffect(() => {
-        if (pb.authStore.model) {
-            setName(pb.authStore.model.name);
-        }
-        else {
-            setName(undefined);
-        }
-    }, [pb, pb.authStore.isValid, pb.authStore.model])
+        setName(pb.authStore.model?.name)
+        pb.authStore.onChange(() => {
+            if (pb.authStore.model) {
+                setName(pb.authStore.model.name);
+            }
+            else {
+                setName(undefined);
+            }
+        })
+    }, [])
 
     if (name === undefined) {
         return (

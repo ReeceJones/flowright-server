@@ -11,6 +11,7 @@ import (
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/models"
 	"github.com/pocketbase/pocketbase/plugins/migratecmd"
 )
 
@@ -36,7 +37,7 @@ func main() {
 	app.OnBeforeServe().Add(func(e *core.ServeEvent) error {
 		e.Router.AddRoute(echo.Route{
 			Method: http.MethodPost,
-			Path:   "/api/checkusername",
+			Path:   "/api/flowright/checkusername",
 			Handler: func(c echo.Context) error {
 				userRequest := new(CheckUsernameRequest)
 				if err := c.Bind(userRequest); err != nil {
@@ -67,7 +68,7 @@ func main() {
 
 		e.Router.AddRoute(echo.Route{
 			Method: http.MethodPost,
-			Path:   "/api/checkemail",
+			Path:   "/api/flowright/checkemail",
 			Handler: func(c echo.Context) error {
 				userRequest := new(CheckEmailRequest)
 				if err := c.Bind(userRequest); err != nil {
@@ -90,6 +91,54 @@ func main() {
 				}
 
 				return c.String(http.StatusAccepted, "ok")
+			},
+			Middlewares: []echo.MiddlewareFunc{
+				apis.ActivityLogger(app), apis.RequireGuestOnly(),
+			},
+		})
+
+		e.Router.AddRoute(echo.Route{
+			Method: http.MethodPost,
+			Path:   "/api/flowright/auth_link",
+			Handler: func(c echo.Context) error {
+				collection, err := app.Dao().FindCollectionByNameOrId("auth_link_requests")
+				if err != nil {
+					return err
+				}
+
+				record := models.NewRecord(collection)
+
+				if err := app.Dao().SaveRecord(record); err != nil {
+					return err
+				}
+
+				data := map[string]string{
+					"id": record.Id,
+				}
+
+				return c.JSON(http.StatusCreated, data)
+			},
+			Middlewares: []echo.MiddlewareFunc{
+				apis.ActivityLogger(app), apis.RequireGuestOnly(),
+			},
+		})
+
+		e.Router.AddRoute(echo.Route{
+			Method: http.MethodGet,
+			Path:   "/api/flowright/auth_link/:id",
+			Handler: func(c echo.Context) error {
+				record, err := app.Dao().FindRecordById("auth_link_requests", c.PathParam("id"))
+				if err != nil {
+					return err
+				}
+
+				if !record.GetBool("success") {
+					return c.String(http.StatusTeapot, "Not linked yet.")
+				}
+
+				app.Dao().DeleteRecord(record)
+
+				return c.JSON(http.StatusAccepted, record)
 			},
 			Middlewares: []echo.MiddlewareFunc{
 				apis.ActivityLogger(app), apis.RequireGuestOnly(),

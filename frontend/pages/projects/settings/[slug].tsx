@@ -12,10 +12,28 @@ const Page: NextPageWithLayout = () => {
                     <h1 className="text-4xl font-bold">{router.query.slug}</h1>
                 </div>
                 <div className="bg-gray-100 rounded-md p-4 container">
-                    <span className="block mb-1">Link your code to this project:</span>
+                    <div className="p-3">
+                        <span>Login to flowright:</span>
+                    </div>
                     <div className="container w-full rounded bg-gray-800 p-3">
                         <code className="text-sm font-mono text-white">
-                            $ flowright link {router.query.slug}
+                            $ flowright login
+                        </code>
+                    </div>
+                    <div className="p-3">
+                        <span>Initialize a project:</span>
+                    </div>
+                    <div className="container w-full rounded bg-gray-800 p-3">
+                        <code className="text-sm font-mono text-white">
+                            $ flowright init {router.query.slug}
+                        </code>
+                    </div>
+                    <div className="p-3">
+                        <span>Deploy your project:</span>
+                    </div>
+                    <div className="container w-full rounded bg-gray-800 p-3">
+                        <code className="text-sm font-mono text-white">
+                            $ flowright deploy
                         </code>
                     </div>
                 </div>
