@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/base64"
 	"log"
 	"net/http"
 	"os"
+	"shared"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -21,6 +23,17 @@ type CheckUsernameRequest struct {
 
 type CheckEmailRequest struct {
 	Email string `json:"email"`
+}
+
+type RequirementEntry struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+type UploadProjectRequest struct {
+	ProjectId    string             `json:"project_id"`
+	Data         string             `json:"data"`
+	Requirements []RequirementEntry `json:"requirements"`
 }
 
 func main() {
@@ -145,9 +158,72 @@ func main() {
 			},
 		})
 
+		e.Router.AddRoute(echo.Route{
+			Method: http.MethodPost,
+			Path:   "/api/flowright/upload",
+			Handler: func(c echo.Context) error {
+				uploadRequest := new(UploadProjectRequest)
+				if err := c.Bind(uploadRequest); err != nil {
+					return err
+				}
+
+				project, err := app.Dao().FindRecordById("projects", uploadRequest.ProjectId)
+				if err != nil {
+					return err
+				}
+
+				owner, err := app.Dao().FindRecordById("users", project.GetString("owner"))
+				if err != nil {
+					return err
+				}
+
+				collection, err := app.Dao().FindCollectionByNameOrId("project_uploads")
+				if err != nil {
+					return err
+				}
+
+				tarData, err := base64.StdEncoding.DecodeString(uploadRequest.Data)
+				if err != nil {
+					return err
+				}
+
+				record := models.NewRecord(collection)
+				record.Set("project", uploadRequest.ProjectId)
+				record.Set("data", tarData)
+				record.Set("requirements", uploadRequest.Requirements)
+
+				if err := app.Dao().SaveRecord(record); err != nil {
+					return err
+				}
+
+				data := map[string]string{
+					"id": record.Id,
+				}
+
+				requirements := ""
+				for _, requirement := range uploadRequest.Requirements {
+					requirements += requirement.Name + "==" + requirement.Version + "\n"
+				}
+
+				// create base container state
+				err = shared.CreateEnvironment(owner.Username(), project.GetString("name"), requirements, tarData, false)
+				if err != nil {
+					return c.String(http.StatusInternalServerError, err.Error())
+				}
+
+				// create routing rule
+
+				return c.JSON(http.StatusCreated, data)
+			},
+			Middlewares: []echo.MiddlewareFunc{
+				apis.ActivityLogger(app), apis.RequireAdminOrRecordAuth("users"),
+			},
+		})
+
 		return nil
 	})
 
+	shared.Init()
 	if err := app.Start(); err != nil {
 		log.Fatal(err)
 	}
