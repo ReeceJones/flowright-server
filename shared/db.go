@@ -22,44 +22,46 @@ type BackendRef struct {
 
 type RoutingRule struct {
 	gorm.Model
-	BackendRefID uint
-	Endpoint     string
+	BackendRefID   uint
+	Endpoint       string
+	IsUnixSocket   bool
+	UnixSocketPath string
 }
 
 var db *gorm.DB = nil
-var pebble_db *pebble.DB = nil
+var pebbleDB *pebble.DB = nil
 
 func Init() (*gorm.DB, *pebble.DB) {
-	db_handle, err := gorm.Open(sqlite.Open("../test.db"), &gorm.Config{})
+	dbHandle, err := gorm.Open(sqlite.Open("../test.db"), &gorm.Config{})
 	if err != nil {
 		println(err.Error())
 		panic("Failed to open database connection.")
 	}
 
-	db_handle.AutoMigrate(&BackendRef{})
-	db_handle.AutoMigrate(&RoutingRule{})
+	dbHandle.AutoMigrate(&BackendRef{})
+	dbHandle.AutoMigrate(&RoutingRule{})
 
-	db = db_handle
+	db = dbHandle
 
-	pebble_db_handle, err := pebble.Open("../test.pebble", &pebble.Options{})
+	pebbleDBHandle, err := pebble.Open("../test.pebble", &pebble.Options{})
 	if err != nil {
 		println(err.Error())
 		panic("Failed to open pebble database connection.")
 	}
 
-	pebble_db = pebble_db_handle
+	pebbleDB = pebbleDBHandle
 
-	return db_handle, pebble_db_handle
+	return dbHandle, pebbleDBHandle
 }
 
-func AddRoutingRule(owner string, project string, endpoint string) {
-	existing_route, err := GetRoute(owner, project)
-	if err != nil || existing_route == nil {
-		ref := BackendRef{Owner: owner, Project: project, Route: RoutingRule{Endpoint: endpoint}}
+func AddRoutingRule(owner string, project string, endpoint string, isUnixSocket bool, unixSocketPath string) {
+	existingRoute, err := GetRoute(owner, project)
+	if err != nil || existingRoute == nil {
+		ref := BackendRef{Owner: owner, Project: project, Route: RoutingRule{Endpoint: endpoint, IsUnixSocket: isUnixSocket, UnixSocketPath: unixSocketPath}}
 		db.Save(&ref)
 	} else {
-		existing_route.Endpoint = endpoint
-		db.Save(&existing_route.Endpoint)
+		existingRoute.Endpoint = endpoint
+		db.Save(&existingRoute.Endpoint)
 	}
 }
 
@@ -73,16 +75,19 @@ func GetRoute(owner string, project string) (route *RoutingRule, err error) {
 	return &ref.Route, nil
 }
 
-func CreateEnvironment(owner string, project string, requirements string, sourceTarBall []byte, pebble_persist bool) error {
+func CreateEnvironment(owner string, project string, requirements string, sourceTarBall []byte, pebblePersist bool) error {
 	// TODO: migrate to Podman Go Bindings
-	if pebble_db == nil {
+	// baseImage := "python:3.11-alpine3.18"
+	baseImage := "python:3.11"
+
+	if pebblePersist && pebbleDB == nil {
 		panic("Pebble database not initialized.")
 	}
 
 	// make sure the container is present
-	err := exec.Command("podman", "pull", "python:3.11").Run()
+	err := exec.Command("podman", "pull", baseImage).Run()
 	if err != nil {
-		log.Println("Error pulling python:3.11 image:", err)
+		log.Println("Error pulling "+baseImage+" base image:", err)
 		return err
 	}
 
@@ -95,7 +100,7 @@ func CreateEnvironment(owner string, project string, requirements string, source
 	}()
 
 	// create a container
-	if err := exec.Command("podman", "run", "-d", "--name", containerName, "python:3.11", "sleep", "180").Run(); err != nil {
+	if err := exec.Command("podman", "run", "-d", "--name", containerName, baseImage, "sleep", "180").Run(); err != nil {
 		log.Println("Error creating container:", err)
 		return err
 	}
@@ -112,7 +117,8 @@ func CreateEnvironment(owner string, project string, requirements string, source
 		return err
 	}
 
-	if err := exec.Command("podman", "exec", containerName, "pip", "install", "-r", "/requirements.txt").Run(); err != nil {
+	installCommand := exec.Command("podman", "exec", containerName, "pip", "install", "-r", "/requirements.txt")
+	if err := installCommand.Run(); err != nil {
 		log.Println("Error installing requirements:", err)
 		return err
 	}
@@ -146,7 +152,7 @@ func CreateEnvironment(owner string, project string, requirements string, source
 	}
 
 	// commit changes to image
-	commitCommand := exec.Command("podman", "commit", containerName, buildImageName)
+	commitCommand := exec.Command("podman", "commit", "-p", containerName, buildImageName)
 	// commitCommand.Stdout = os.Stdout // TODO: capture this output
 	// commitCommand.Stderr = os.Stderr
 
@@ -155,7 +161,7 @@ func CreateEnvironment(owner string, project string, requirements string, source
 		return err
 	}
 
-	if pebble_persist {
+	if pebblePersist {
 		// save to pebble db
 		imageWriter := new(bytes.Buffer)
 		saveCommand := exec.Command("podman", "save", "--compress", buildImageName)
@@ -166,7 +172,7 @@ func CreateEnvironment(owner string, project string, requirements string, source
 			return err
 		}
 
-		if err := pebble_db.Set([]byte(buildImageName), imageWriter.Bytes(), pebble.Sync); err != nil {
+		if err := pebbleDB.Set([]byte(buildImageName), imageWriter.Bytes(), pebble.Sync); err != nil {
 			log.Println("Error saving image to pebble db:", err)
 			return err
 		}

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"net"
 	"strings"
 	"time"
 
@@ -27,15 +28,10 @@ var upgrader = websocket.FastHTTPUpgrader{
 	EnableCompression: true,
 }
 
-var client = &fasthttp.Client{
-	NoDefaultUserAgentHeader:      true,
-	DisableHeaderNamesNormalizing: true,
-	DisablePathNormalizing:        true,
-}
-
 func main() {
 	shared.Init()
-	shared.AddRoutingRule("reece", "test", "localhost:8000")
+	shared.AddRoutingRule("reece", "test", "localhost:8000", false, "")
+	shared.AddRoutingRule("reece", "unix_test", "unix", true, "/Users/reece/Documents/Projects/flowright-test/test.socket")
 	if err := fasthttp.ListenAndServe("localhost:9000", requestHandler); err != nil {
 		fmt.Printf("Error occurred: %v", err)
 	}
@@ -144,7 +140,18 @@ func handleWebsocketProxy(ctx *fasthttp.RequestCtx) {
 	err = upgrader.Upgrade(ctx, func(server_conn *websocket.Conn) {
 		defer server_conn.Close()
 		// connect to flowright backend
-		client_conn, _, err := websocket.DefaultDialer.Dial(uri.String(), nil)
+		dialer := &websocket.Dialer{}
+		if route.IsUnixSocket {
+			dialer = &websocket.Dialer{
+				NetDial: func(network, addr string) (net.Conn, error) {
+					return net.Dial("unix", route.UnixSocketPath) // TODO, if horizontally scaled this will be issue
+				},
+			}
+		} else {
+			dialer = websocket.DefaultDialer
+		}
+
+		client_conn, _, err := dialer.Dial(uri.String(), nil)
 		if err != nil {
 			log.Fatal("Error dialing websocket:", err)
 			return
@@ -163,13 +170,21 @@ func handleWebsocketProxy(ctx *fasthttp.RequestCtx) {
 }
 
 func handleHttpProxy(ctx *fasthttp.RequestCtx) {
-	_, _, path, err := getProxyPathComponents(ctx.URI())
+	owner, project, path, err := getProxyPathComponents(ctx.URI())
 	if err != nil {
 		log.Println("Invalid URI:", string(ctx.URI().Path()))
 		return
 	}
+	route, err := shared.GetRoute(owner, project)
+	if err != nil {
+		log.Println("Invalid backend:", owner, project)
+		log.Println("Cause:", err)
+		ctx.Response.SetStatusCode(fasthttp.StatusNotFound)
+		return
+	}
+	log.Println("Endpoint:", route)
 	uri := fasthttp.AcquireURI()
-	err = uri.Parse([]byte("localhost:8000"), []byte(path))
+	err = uri.Parse([]byte(route.Endpoint), []byte(path))
 	if err != nil {
 		log.Println("Error parsing request uri:", err)
 		ctx.Response.SetStatusCode(fasthttp.StatusInternalServerError)
@@ -183,6 +198,17 @@ func handleHttpProxy(ctx *fasthttp.RequestCtx) {
 		req.Header.Set(string(key), string(value))
 	})
 	resp := fasthttp.AcquireResponse()
+	client := fasthttp.Client{
+		Dial: func(addr string) (net.Conn, error) {
+			if route.IsUnixSocket {
+				return net.Dial("unix", route.UnixSocketPath)
+			}
+			return net.Dial("tcp", addr)
+		},
+		NoDefaultUserAgentHeader:      true,
+		DisableHeaderNamesNormalizing: true,
+		DisablePathNormalizing:        true,
+	}
 	err = client.Do(req, resp)
 	if err != nil {
 		log.Println("Error servicing request", err)
