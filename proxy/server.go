@@ -30,8 +30,8 @@ var upgrader = websocket.FastHTTPUpgrader{
 
 func main() {
 	shared.Init()
-	shared.AddRoutingRule("reece", "test", "localhost:8000", false, "")
-	shared.AddRoutingRule("reece", "unix_test", "unix", true, "/Users/reece/Documents/Projects/flowright-test/test.socket")
+	// shared.AddRoutingRule("reece", "test", "localhost:8000", false, "")
+	// shared.AddRoutingRule("reece", "unix_test", "unix", true, "/Users/reece/Documents/Projects/flowright-test/test.socket")
 	if err := fasthttp.ListenAndServe("localhost:9000", requestHandler); err != nil {
 		fmt.Printf("Error occurred: %v", err)
 	}
