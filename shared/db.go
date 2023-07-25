@@ -3,8 +3,10 @@ package shared
 import (
 	"bytes"
 	"log"
+	"net"
 	"os"
 	"os/exec"
+	"strconv"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/dchest/uniuri"
@@ -43,26 +45,31 @@ func Init() (*gorm.DB, *pebble.DB) {
 
 	db = dbHandle
 
-	pebbleDBHandle, err := pebble.Open("../test.pebble", &pebble.Options{})
-	if err != nil {
-		println(err.Error())
-		panic("Failed to open pebble database connection.")
-	}
+	// pebbleDBHandle, err := pebble.Open("../test.pebble", &pebble.Options{})
+	// if err != nil {
+	// 	println(err.Error())
+	// 	panic("Failed to open pebble database connection.")
+	// }
 
-	pebbleDB = pebbleDBHandle
+	// pebbleDB = pebbleDBHandle
 
-	return dbHandle, pebbleDBHandle
+	return dbHandle, nil
 }
 
 func AddRoutingRule(owner string, project string, endpoint string, isUnixSocket bool, unixSocketPath string) {
+	// update route locally
 	existingRoute, err := GetRoute(owner, project)
 	if err != nil || existingRoute == nil {
 		ref := BackendRef{Owner: owner, Project: project, Route: RoutingRule{Endpoint: endpoint, IsUnixSocket: isUnixSocket, UnixSocketPath: unixSocketPath}}
 		db.Save(&ref)
 	} else {
+		// FIXME: doesn't update RoutingRule
 		existingRoute.Endpoint = endpoint
-		db.Save(&existingRoute.Endpoint)
+		existingRoute.IsUnixSocket = isUnixSocket
+		existingRoute.UnixSocketPath = unixSocketPath
+		db.Save(existingRoute)
 	}
+	// update route globally
 }
 
 func GetRoute(owner string, project string) (route *RoutingRule, err error) {
@@ -185,15 +192,31 @@ func CreateEnvironment(owner string, project string, requirements string, source
 	}
 
 	// now run app
-	// TODO: expose volume with UDS
+	// NOTE: it appears impossible to expose a UDS from within the container. The proxy will nonetheless support UDS backends until a solution exists.
+
+	// https://coolaj86.com/articles/how-to-test-if-a-port-is-available-in-go/
+	portSearchStart := 41000
+	portSearchEnd := 42000
+	port := portSearchStart
+	for ; port < portSearchEnd; port++ {
+		ln, err := net.Listen("tcp", ":"+strconv.Itoa(port))
+		if err != nil {
+			continue
+		}
+		ln.Close()
+		break
+	}
+
 	containerRunName := containerName + "-run"
-	runCommand := exec.Command("podman", "run", "-d", "-p", "8000:8000", "--name", containerRunName, buildImageName, "flowright", "run", "/flowright_app", "--host=0.0.0.0")
+	runCommand := exec.Command("podman", "run", "-d", "-p", strconv.Itoa(port)+":8000", "--name", containerRunName, buildImageName, "flowright", "run", "/flowright_app", "--host=0.0.0.0")
 	runCommand.Stderr = os.Stderr
 	runCommand.Stdout = os.Stdout
 	if err := runCommand.Run(); err != nil {
 		log.Println("Error running app:", err)
 		return err
 	}
+	// install route
+	AddRoutingRule(owner, project, "localhost:"+strconv.Itoa(port), false, "")
 
 	return nil
 }
