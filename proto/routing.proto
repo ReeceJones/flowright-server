@@ -1,0 +1,88 @@
+syntax = "proto3";
+
+option go_package = "reece.ooo/flowright";
+
+package routing;
+
+service RoutingController {
+    rpc RegisterProxy(ProxyRegisterRequest) returns (ProxyRegisterResponse);
+    rpc GetInfo(InfoRequest) returns (ControllerInfo);
+    rpc CreateOrUpdateRoute(RoutingMap) returns (RoutingRule);
+    rpc GetRoute(RoutingParams) returns (RoutingRule);
+    rpc CreateEnvironment(EnvironmentCreateRequest) returns (EnvironmentCreateResponse);
+    // TODO
+    rpc DeleteEnvironment(EnvironmentDeleteRequest) returns (EnvironmentDeleteResponse);
+    rpc ListEnvironments(EnvironmentListRequest) returns (EnvironmentListResponse);
+}
+
+message InfoRequest {}
+
+message ProxyRegisterRequest {
+    string name = 1;
+    string host = 2;
+    uint32 port = 3;
+    uint32 grpc_port = 4;
+}
+
+message ProxyRegisterResponse {
+    bool success = 1;
+}
+
+message ControllerInfo {
+    string host = 1;
+    uint32 grpc_port = 2;
+}
+
+message RoutingParams {
+    string url = 1;
+}
+
+message RoutingRule {
+    string proxy_name = 1;
+    string proxy_host = 2;
+    uint32 proxy_port = 3;
+}
+
+message RoutingMap {
+    string owner = 1;
+    string project = 2;
+    string proxy_name = 3;
+    string proxy_host = 4;
+    uint32 proxy_port = 5;
+}
+
+message EnvironmentCreateRequest {
+    bytes project_tarball = 1;
+    string owner = 2;
+    string project = 3;
+    string requirements = 4;
+}
+
+message EnvironmentCreateResponse {
+    bool success = 1;
+    string message = 2;
+    string proxxy_name = 3;
+}
+
+message EnvironmentDeleteRequest {
+    string owner = 1;
+    string project = 2;
+}
+
+message EnvironmentDeleteResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message EnvironmentListRequest {
+    string owner = 1;
+}
+
+message EnvironmentListResponse {
+    repeated EnvironmentInfo environments = 1;
+}
+
+message EnvironmentInfo {
+    string owner = 1;
+    string project = 2;
+}

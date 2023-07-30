@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"shared"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/pocketbase/dbx"
@@ -15,6 +17,10 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/models"
 	"github.com/pocketbase/pocketbase/plugins/migratecmd"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
+	pb "flowright/backend/reece.ooo/flowright"
 )
 
 type CheckUsernameRequest struct {
@@ -196,22 +202,53 @@ func main() {
 					return err
 				}
 
-				data := map[string]string{
-					"id": record.Id,
-				}
-
 				requirements := ""
 				for _, requirement := range uploadRequest.Requirements {
 					requirements += requirement.Name + "==" + requirement.Version + "\n"
 				}
 
 				// create base container state
-				err = shared.CreateEnvironment(owner.Username(), project.GetString("name"), requirements, tarData, false)
+				// TODO: should have configuratble control plane addr
+				conn, err := grpc.Dial(fmt.Sprintf("%s:%d", "localhost", 50051), grpc.WithTransportCredentials(insecure.NewCredentials()))
 				if err != nil {
+					log.Print(err)
+					log.Print("Failed to connect to proxy")
+					return err
+				}
+				defer conn.Close()
+
+				client := pb.NewRoutingControllerClient(conn)
+				cctx, cancel := context.WithTimeout(context.Background(), time.Minute*3)
+				defer cancel()
+
+				environmentResponse, err := client.CreateEnvironment(cctx, &pb.EnvironmentCreateRequest{
+					Owner:          owner.Username(),
+					Project:        project.GetString("name"),
+					Requirements:   requirements,
+					ProjectTarball: tarData,
+				})
+
+				// err = CreateEnvironment(owner.Username(), project.GetString("name"), requirements, tarData)
+				if err != nil {
+					log.Printf("Failed to create environment (%s, %s)\n", owner.Username(), project.GetString("name"))
 					return c.String(http.StatusInternalServerError, err.Error())
 				}
 
 				// create routing rule
+				_, err = client.CreateOrUpdateRoute(cctx, &pb.RoutingMap{
+					Owner:     owner.Username(),
+					Project:   project.GetString("name"),
+					ProxyName: environmentResponse.ProxxyName, // FIXME: oops, typo
+				})
+
+				if err != nil {
+					log.Printf("Failed to create route for environment (%s, %s) on %s\n", owner.Username(), project.GetString("name"), environmentResponse.ProxxyName)
+					return err
+				}
+
+				data := map[string]string{
+					"id": record.Id,
+				}
 
 				return c.JSON(http.StatusCreated, data)
 			},
@@ -223,7 +260,6 @@ func main() {
 		return nil
 	})
 
-	shared.Init()
 	if err := app.Start(); err != nil {
 		log.Fatal(err)
 	}

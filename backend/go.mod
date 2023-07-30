@@ -1,4 +1,4 @@
-module backend
+module flowright/backend
 
 go 1.20
 
