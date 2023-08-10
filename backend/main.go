@@ -23,6 +23,11 @@ import (
 	pb "flowright/backend/reece.ooo/flowright"
 )
 
+var (
+	controlPlaneHost = os.Getenv("CONTROL_PLANE_HOST")
+	controlPlanePort = os.Getenv("CONTROL_PLANE_PORT")
+)
+
 type CheckUsernameRequest struct {
 	Username string `json:"username"`
 }
@@ -209,7 +214,7 @@ func main() {
 
 				// create base container state
 				// TODO: should have configuratble control plane addr
-				conn, err := grpc.Dial(fmt.Sprintf("%s:%d", "localhost", 50051), grpc.WithTransportCredentials(insecure.NewCredentials()))
+				conn, err := grpc.Dial(fmt.Sprintf("%s:%s", controlPlaneHost, controlPlanePort), grpc.WithTransportCredentials(insecure.NewCredentials()))
 				if err != nil {
 					log.Print(err)
 					log.Print("Failed to connect to proxy")

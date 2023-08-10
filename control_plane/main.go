@@ -28,7 +28,7 @@ var (
 )
 
 type Proxy struct {
-	gorm.Model
+	// gorm.Model
 	Name             string `gorm:"primaryKey;autoIncrement:false"`
 	Host             string
 	Port             uint32
@@ -38,7 +38,7 @@ type Proxy struct {
 }
 
 type Route struct {
-	gorm.Model
+	// gorm.Model
 	Owner     string `gorm:"primaryKey;autoIncrement:false"`
 	Project   string `gorm:"primaryKey;autoIncrement:false"`
 	ProxyName string
@@ -46,7 +46,7 @@ type Route struct {
 }
 
 type Environment struct {
-	gorm.Model
+	// gorm.Model
 	Owner     string `gorm:"primaryKey;autoIncrement:false"`
 	Project   string `gorm:"primaryKey;autoIncrement:false"`
 	ProxyName string

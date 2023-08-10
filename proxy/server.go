@@ -88,7 +88,10 @@ func BuildAndRunEnvironment(owner string, project string, requirements string, s
 	baseImage := "python:3.11"
 
 	// make sure the container is present
-	err := exec.Command("podman", "pull", baseImage).Run()
+	pullCommand := exec.Command("podman", "pull", baseImage)
+	pullCommand.Stderr = os.Stderr
+	pullCommand.Stdout = os.Stdout
+	err := pullCommand.Run()
 	if err != nil {
 		log.Println("Error pulling "+baseImage+" base image:", err)
 		return "", "", -1, err
@@ -103,7 +106,10 @@ func BuildAndRunEnvironment(owner string, project string, requirements string, s
 	}()
 
 	// create a container
-	if err := exec.Command("podman", "run", "-d", "--name", containerName, baseImage, "sleep", "180").Run(); err != nil {
+	runCommand := exec.Command("podman", "run", "-d", "--name", containerName, baseImage, "sleep", "180")
+	runCommand.Stderr = os.Stderr
+	runCommand.Stdout = os.Stdout
+	if err := runCommand.Run(); err != nil {
 		log.Println("Error creating container:", err)
 		return "", "", -1, err
 	}
@@ -115,19 +121,27 @@ func BuildAndRunEnvironment(owner string, project string, requirements string, s
 		return "", "", -1, err
 	}
 
-	if err := exec.Command("podman", "cp", tmpRequirementsFile, containerName+":/requirements.txt").Run(); err != nil {
+	copyCommand := exec.Command("podman", "cp", tmpRequirementsFile, containerName+":/requirements.txt")
+	copyCommand.Stderr = os.Stderr
+	copyCommand.Stdout = os.Stdout
+	if err := copyCommand.Run(); err != nil {
 		log.Println("Error copying requirements file:", err)
 		return "", "", -1, err
 	}
 
 	installCommand := exec.Command("podman", "exec", containerName, "pip", "install", "-r", "/requirements.txt")
+	installCommand.Stderr = os.Stderr
+	installCommand.Stdout = os.Stdout
 	if err := installCommand.Run(); err != nil {
 		log.Println("Error installing requirements:", err)
 		return "", "", -1, err
 	}
 
-	// ensure flowright is installed (this issue mostly occurs with flowright development)
-	if err := exec.Command("podman", "exec", containerName, "pip", "install", "flowright").Run(); err != nil {
+	// ensure flowright is installed (this issue mostly occurs with flowright local development)
+	execCommand := exec.Command("podman", "exec", containerName, "pip", "install", "flowright")
+	execCommand.Stderr = os.Stderr
+	execCommand.Stdout = os.Stdout
+	if err := execCommand.Run(); err != nil {
 		log.Println("Error installing flowright:", err)
 		return "", "", -1, err
 	}
@@ -139,12 +153,18 @@ func BuildAndRunEnvironment(owner string, project string, requirements string, s
 		return "", "", -1, err
 	}
 
-	if err := exec.Command("podman", "cp", tmpSourceFile, containerName+":/source.tar.gz").Run(); err != nil {
+	copyCommand = exec.Command("podman", "cp", tmpSourceFile, containerName+":/source.tar.gz")
+	copyCommand.Stderr = os.Stderr
+	copyCommand.Stdout = os.Stdout
+	if err := copyCommand.Run(); err != nil {
 		log.Println("Error copying source:", err)
 		return "", "", -1, err
 	}
 
-	if err := exec.Command("podman", "exec", containerName, "mkdir", "-p", "/flowright_app").Run(); err != nil {
+	execCommand = exec.Command("podman", "exec", containerName, "mkdir", "-p", "/flowright_app")
+	execCommand.Stderr = os.Stderr
+	execCommand.Stdout = os.Stdout
+	if err := execCommand.Run(); err != nil {
 		log.Println("Error creating app directory:", err)
 		return "", "", -1, err
 	}
@@ -159,16 +179,18 @@ func BuildAndRunEnvironment(owner string, project string, requirements string, s
 
 	// commit changes to image
 	commitCommand := exec.Command("podman", "commit", "-p", containerName, buildImageName)
-	// commitCommand.Stdout = os.Stdout // TODO: capture this output
-	// commitCommand.Stderr = os.Stderr
-
+	commitCommand.Stdout = os.Stdout // TODO: capture this output
+	commitCommand.Stderr = os.Stderr
 	if err := commitCommand.Run(); err != nil {
 		log.Println("Error committing changes:", err)
 		return "", "", -1, err
 	}
 
 	// stop base container
-	if err := exec.Command("podman", "stop", containerName).Run(); err != nil {
+	stopCommand := exec.Command("podman", "stop", containerName)
+	stopCommand.Stderr = os.Stderr
+	stopCommand.Stdout = os.Stdout
+	if err := stopCommand.Run(); err != nil {
 		log.Println("Error stopping container:", err)
 		return "", "", -1, err
 	}
@@ -190,7 +212,7 @@ func BuildAndRunEnvironment(owner string, project string, requirements string, s
 	}
 
 	containerRunName := containerName + "-run"
-	runCommand := exec.Command("podman", "run", "-d", "-p", strconv.Itoa(port)+":8000", "--name", containerRunName, buildImageName, "flowright", "run", "/flowright_app", "--host=0.0.0.0")
+	runCommand = exec.Command("podman", "run", "-d", "-p", strconv.Itoa(port)+":8000", "--name", containerRunName, buildImageName, "flowright", "run", "/flowright_app", "--host=0.0.0.0")
 	runCommand.Stderr = os.Stderr
 	runCommand.Stdout = os.Stdout
 	if err := runCommand.Run(); err != nil {
@@ -253,7 +275,7 @@ func (r *ResolvedRoute) Endpoint() string {
 }
 
 type Route struct {
-	gorm.Model
+	// gorm.Model
 	Owner     string `gorm:"primaryKey;autoIncrement:false"`
 	Project   string `gorm:"primaryKey;autoIncrement:false"`
 	ProxyName string
@@ -266,7 +288,7 @@ func (r *Route) Endpoint() string {
 }
 
 type Environment struct {
-	gorm.Model
+	// gorm.Model
 	Owner               string `gorm:"primaryKey;autoIncrement:false"`
 	Project             string `gorm:"primaryKey;autoIncrement:false"`
 	PodmanImageName     string
@@ -322,6 +344,42 @@ func initDB() error {
 	return nil
 }
 
+func initContainers() error {
+	tx := db.Find(&Environment{})
+	if tx.Error != nil {
+		log.Printf("Could not get local environments on startup! %v\n", tx.Error)
+		return tx.Error
+	}
+
+	rows, err := tx.Rows()
+
+	if err != nil {
+		log.Printf("Could not get local environments on startup! %v\n", err)
+		return err
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+		var environment Environment
+		tx.ScanRows(rows, &environment)
+		log.Printf("Found environment %s/%s\n", environment.Owner, environment.Project)
+
+		// startup environment
+		runCommand := exec.Command("podman", "start", environment.PodmanContainerName)
+		runCommand.Stdout = os.Stdout
+		runCommand.Stderr = os.Stderr
+		if err := runCommand.Run(); err != nil {
+			log.Printf("Failed to start environment %s/%s\n", environment.Owner, environment.Project)
+			// TODO: notify control plane
+		}
+
+		log.Printf("Started environment %s/%s\n", environment.Owner, environment.Project)
+	}
+
+	return nil
+}
+
 func initControlPlane() error {
 	conn, err := grpc.Dial(fmt.Sprintf("%s:%d", *controlPlaneHost, *controlPlanePort), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -362,6 +420,11 @@ func main() {
 	}
 	db.AutoMigrate(&Route{})
 	db.AutoMigrate(&Environment{})
+
+	err = initContainers()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	lis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", *host, *grpcPort))
 	if err != nil {

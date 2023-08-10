@@ -14,12 +14,18 @@ services:
       - 9001:9001
     build:
       context: proxy
+    privileged: true
+    volumes:
+      - proxy-data:/var/lib/containers
   backend:
     depends_on:
       - control_plane
       - proxy
     ports:
       - 8090:8090
+    environment:
+      - CONTROL_PLANE_HOST=control_plane
+      - CONTROL_PLANE_PORT=50051
     build:
       context: backend
   frontend:
@@ -36,3 +42,6 @@ services:
   #   restart: always
   #   environment:
   #     POSTGRES_PASSWORD: password
+
+volumes:
+  proxy-data:
